@@ -107,6 +107,7 @@
   .sw.arc { background: radial-gradient(circle, #fff 0 3px, transparent 3.5px), var(--deep); }
   .sw.fly { border: 2px dashed #D69A2E; }
   .sw.ok { border: 3px solid #3F9C5E; }
+  .sw.pads { background: conic-gradient(#62A867 0 25%, #C2BE58 0 50%, #E39A4E 0 75%, #D9728F 0); }
   .sw.bull { background: radial-gradient(circle at 40% 35%, #B3BA6A, #4B5A33); }
   .chip.danger b { color: var(--mouth); animation: pulse .6s ease-in-out infinite alternate; }
   @keyframes pulse { to { opacity: .45; } }
@@ -206,6 +207,7 @@
           <li><span class="sw fly"></span><span><strong>Gold rings</strong> mark flies the tongue will reach.</span></li>
           <li><span class="sw ok"></span><span><strong>Green ring</strong> means a safe landing.</span></li>
           <li><span class="sw no"></span><span><strong>Red cross</strong> means a splash and a lost life.</span></li>
+          <li><span class="sw pads"></span><span><strong>Pad colours:</strong> green is safe. Yellow, orange and pink pads sink a few seconds after you land.</span></li>
           <li><span class="sw bull"></span><span><strong>The bullfrog</strong> hops after you. If he reaches your pad, he gulps you. Golden flies daze him.</span></li>
         </ul>
         <button id="play">Play</button>
@@ -228,6 +230,7 @@
     <li><span class="sw fly"></span><span><strong>Gold rings</strong> mark flies the tongue will reach, shown where the fly will be at that moment.</span></li>
     <li><span class="sw ok"></span><span><strong>Green ring</strong> at the end means a safe landing on a pad.</span></li>
     <li><span class="sw no"></span><span><strong>Red cross</strong> means the frog drops into the pond and loses a life.</span></li>
+    <li><span class="sw pads"></span><span><strong>Four stages:</strong> Still Pond, Breeze, Dusk and Night Storm. Green pads are safe; yellow sinks 4s after you land, orange 2.5s, pink 1.5s.</span></li>
     <li><span class="sw bull"></span><span><strong>The bullfrog</strong> wakes on your first leap and hops after you, sinking every pad he leaves. If he reaches your pad, he gulps you. Golden flies daze him for a moment.</span></li>
   </ul>
   <p class="keys">Keyboard: <kbd>←</kbd><kbd>→</kbd> angle, <kbd>↑</kbd><kbd>↓</kbd> power, <kbd>Space</kbd> leap. Eat flies on consecutive leaps to build a streak; every 12 flies earns a lily pad life.</p>
@@ -262,7 +265,7 @@
     dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
     narrow = r.height > r.width * 1.1;
-    MIN_W = narrow ? 430 : 760;
+    MIN_W = narrow ? 540 : 760;
     scale = Math.min(r.height / H, r.width / MIN_W);
     W = r.width / scale; viewH = r.height / scale; offY = (viewH - H) * 0.55; botX = viewH - H - offY;
   }
@@ -284,11 +287,13 @@
       score: 0, eaten: 0, lives: 3, streak: 0, jumps: 0, padCount: 0, nextLifeAt: 12,
       mode: 'aim', aim: { x: 0, y: 0 }, splashT: 0, jumpCatch: 0, best: +store.get('ll-best', 0)
     };
-    const pB = { bx: -60, w: 140, amp: 0, sp: 1, ph: 1.2 };
-    const p0 = { bx: 150, w: 132, amp: 0, sp: 1, ph: 0 };
+    const pB = { bx: -60, w: 140, amp: 0, sp: 1, ph: 1.2, kind: 'stable', stage: 1 };
+    const p0 = { bx: 150, w: 132, amp: 0, sp: 1, ph: 0, kind: 'stable', stage: 1 };
     S.pads.push(pB, p0); S.lastPad = p0; S.tail = p0;
     S.bully = { pad: pB, x: pB.bx, y: FEET, state: 'sleep', wait: 0, hopT: 0, hopDur: 0.8, fx: 0, target: null, left: null, hops: 0, stun: 0, squash: 0, crouch: 0, mouth: 0 };
-    S.shake = 0; S.danger = 0; S.caughtT = 0;
+    S.shake = 0; S.danger = 0; S.caughtT = 0; S.stage = 1; S.banner = null; S.grade = 0;
+    const jump = /^#stage([2-4])$/.exec(location.hash); // preview a later stage, e.g. #stage3
+    if (jump) S.padCount = STAGES[+jump[1] - 1].from;
     S.frog = { x: 150, y: FEET, vx: 0, vy: 0, pad: p0, off: 0, face: 1, mouth: 0, squash: 0, tongue: null };
     generate();
     S.camX = S.frog.x - W * frogFrac(false);
@@ -302,6 +307,22 @@
     return { v: Math.hypot(vx, vy), k };
   }
 
+  // difficulty stages: which pad colours appear, and how fast each kind sinks once you land
+  const STAGES = [
+    { n: 1, name: 'Still Pond', sub: 'Green pads are safe to rest on', from: 0, mix: {} },
+    { n: 2, name: 'Breeze', sub: 'Yellow pads sink 4 seconds after you land', from: 10, mix: { slow: 0.3 } },
+    { n: 3, name: 'Dusk', sub: 'Orange pads sink after 2.5 seconds', from: 24, mix: { slow: 0.25, fast: 0.25 } },
+    { n: 4, name: 'Night Storm', sub: 'Pink pads sink after 1.5 seconds. Keep moving!', from: 40, mix: { slow: 0.2, fast: 0.25, quick: 0.25 } }
+  ];
+  const PAD_DELAY = { slow: 4, fast: 2.5, quick: 1.5 };
+  const stageFor = i => { let st = STAGES[0]; for (const x of STAGES) if (i >= x.from) st = x; return st; };
+  function pickKind(st, prev) {
+    if (prev && prev !== 'stable' && Math.random() < 0.5) return 'stable'; // keep runs of sinking pads short
+    let r = Math.random();
+    for (const k of ['quick', 'fast', 'slow']) { const pr = st.mix[k] || 0; if (r < pr) return k; r -= pr; }
+    return 'stable';
+  }
+
   function generate() {
     while (S.tail.bx < S.camX + W + 700) {
       const last = S.tail;
@@ -312,6 +333,8 @@
         bx: last.bx + gap, w: rand(96 - 28 * d, 132 - 38 * d),
         amp: drift ? rand(16, 28 + 22 * d) : 0, sp: rand(0.55, 1.05), ph: rand(0, 6.28)
       };
+      const st = stageFor(S.padCount);
+      p.stage = st.n; p.kind = pickKind(st, last.kind);
       S.pads.push(p); S.padCount++;
       // flies over the gap, guaranteed catchable on an arc that lands on the next pad
       const x0 = last.bx, x1 = p.bx;
@@ -341,10 +364,11 @@
   }
 
   // ---- shared physics step: used by both preview and real jump ----
-  const sinkOf = p => p.sinkStart === undefined ? 0 : Math.min(1, (S.t - p.sinkStart) / 1.6);
+  const sinkOf = p => p.sinkStart === undefined ? 0 : Math.max(0, Math.min(1, (S.t - p.sinkStart) / 1.6));
+  const LAND_SLACK = 16; // the frog's feet can hang a little past the rim
   const padIdx = p => S.pads.indexOf(p);
   function findPad(x, t) {
-    for (const p of S.pads) if (sinkOf(p) < 0.2 && Math.abs(x - padX(p, t)) <= p.w * 0.46) return p;
+    for (const p of S.pads) if (sinkOf(p) < 0.2 && Math.abs(x - padX(p, t)) <= p.w * 0.5 + LAND_SLACK) return p;
     return null;
   }
   function simulate(x, y, vx, vy, t) {
@@ -391,7 +415,9 @@
       B.wait -= DT;
       B.crouch = B.wait < 0.4 ? 1 - B.wait / 0.4 : 0;
       if (B.wait <= 0) {
-        const next = S.pads[padIdx(B.pad) + 1];
+        let ni = padIdx(B.pad) + 1;
+        while (S.pads[ni] && sinkOf(S.pads[ni]) > 0) ni++;
+        const next = S.pads[ni];
         if (!next) { B.wait = 0.4; return; }
         B.state = 'hop'; B.hopT = 0; B.fx = B.x; B.target = next; B.left = B.pad; B.crouch = 0; B.squash = -0.2;
         S.ripples.push({ x: B.x, y: WATER, r: 18, life: 1 });
@@ -402,8 +428,8 @@
       B.x = B.fx + (tx - B.fx) * k;
       B.y = FEET - Math.sin(k * Math.PI) * (70 + Math.abs(tx - B.fx) * 0.18);
       if (k >= 1) {
-        B.state = 'sit'; B.y = FEET; B.left.sinkStart = S.t; B.pad = B.target; B.hops++;
-        B.wait = Math.max(0.8, 2.4 - B.hops * 0.03); B.squash = 0.32; S.shake = 0.35;
+        B.state = 'sit'; B.y = FEET; B.left.sinkStart = Math.min(B.left.sinkStart ?? Infinity, S.t); B.pad = B.target; B.hops++;
+        B.wait = Math.max(0.7, 2.4 - B.hops * 0.025 - (S.stage - 1) * 0.15); B.squash = 0.32; S.shake = 0.35;
         S.ripples.push({ x: B.x, y: WATER, r: 26, life: 1.2 }, { x: B.x, y: WATER, r: 10, life: 1.5 });
         for (let i = 0; i < 16; i++) S.parts.push({ x: B.x + rand(-50, 50), y: WATER, vx: rand(-90, 90), vy: rand(-220, -80), life: rand(.4, .8), max: .8, r: rand(1.5, 3.5), col: i % 3 ? '#A9D3DE' : '#F3F6F2', g: 900 });
         S.pads = S.pads.filter(p => !(p.sinkStart !== undefined && S.t - p.sinkStart > 2));
@@ -437,12 +463,21 @@
     } else {
       S.t += DT;
       if (S.mode === 'caught') { S.caughtT -= DT; if (S.caughtT <= 0) return gameOver(true); }
-      if (S.mode === 'aim' && F.pad) { F.x = padX(F.pad, S.t) + F.off; F.y = FEET; }
+      if (S.mode === 'aim' && F.pad) {
+        F.x = padX(F.pad, S.t) + F.off; F.y = FEET;
+        if (sinkOf(F.pad) > 0.15) { S.aim = { x: 0, y: 0 }; F.pad = null; splash(); }
+      }
       if (S.mode === 'splash') {
         S.splashT -= DT;
         if (S.splashT <= 0) {
           if (S.lives <= 0) return gameOver();
-          const p = S.lastPad; S.mode = 'aim'; F.pad = p; F.off = 0; F.x = padX(p, S.t); F.y = FEET; F.vx = F.vy = 0; F.squash = 0.2;
+          let p = S.lastPad;
+          if (padIdx(p) < 0 || p.sinkStart !== undefined) { // pad is gone: swim on to the next steady pad
+            const from = Math.max(0, padIdx(p));
+            p = S.pads.find((q, i) => i >= from && q.sinkStart === undefined && padX(q, S.t) >= F.x - 40) || p;
+            S.lastPad = p;
+          }
+          S.mode = 'aim'; F.pad = p; F.off = 0; F.x = padX(p, S.t); F.y = FEET; F.vx = F.vy = 0; F.squash = 0.2;
           S.ripples.push({ x: F.x, y: WATER, r: 8, life: 1 });
           const B = S.bully;
           if (B.state !== 'sleep' && (padIdx(p) < 0 || padIdx(p) <= padIdx(B.pad))) caught();
@@ -476,6 +511,11 @@
     F.y = FEET; F.vx = F.vy = 0; F.pad = pad; F.off = F.x - padX(pad, S.t); F.squash = 0.28;
     S.mode = 'aim';
     if (S.jumpCatch > 0) S.streak++; else if (pad !== S.lastPad) S.streak = 0;
+    if (pad.kind && pad.kind !== 'stable' && pad.sinkStart === undefined) { pad.touchT = S.t; pad.sinkStart = S.t + PAD_DELAY[pad.kind]; }
+    if (pad.stage > S.stage) {
+      S.stage = pad.stage; const st = STAGES[S.stage - 1];
+      S.banner = { title: 'Stage ' + st.n + ' · ' + st.name, sub: st.sub, life: 3.2 };
+    }
     if (pad !== S.lastPad) { S.score += 5; S.floats.push({ x: F.x, y: F.y - 60, text: 'landed +5', life: .9, col: '#3F8C5C' }); }
     S.lastPad = pad;
     S.ripples.push({ x: F.x, y: WATER, r: 14, life: 1 }, { x: F.x, y: WATER, r: 4, life: 1.3 });
@@ -526,11 +566,11 @@
   const clampAim = a => { const l = Math.hypot(a.x, a.y); return l > MAXPULL ? { x: a.x / l * MAXPULL, y: a.y / l * MAXPULL } : a; };
   cv.addEventListener('pointerdown', e => {
     if (S.mode !== 'aim') return;
-    cv.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY }; S.aim = { x: 0, y: 0 };
+    cv.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY, k: e.pointerType === 'touch' ? 1.6 : 1 }; S.aim = { x: 0, y: 0 };
   });
   cv.addEventListener('pointermove', e => {
     if (!drag) return;
-    S.aim = clampAim({ x: (drag.x - e.clientX) / scale, y: (drag.y - e.clientY) / scale });
+    S.aim = clampAim({ x: (drag.x - e.clientX) * drag.k / scale, y: (drag.y - e.clientY) * drag.k / scale });
   });
   const endDrag = () => { if (!drag) return; drag = null; if (S.mode === 'aim') launch(); };
   cv.addEventListener('pointerup', endDrag);
@@ -695,8 +735,15 @@
 
   // ---------- lily pad sprites (cached by size + notch) ----------
   const padCache = new Map();
-  function padSprite(w, v) {
-    const key = Math.round(w / 4) * 4 + '_' + v;
+  const PAD_COLS = {
+    stable: ['#A6D27F', '#62A867', '#3A8458', '#2A6A58', '#1F5A55'],
+    slow: ['#E6DE84', '#C2BE58', '#8E973F', '#6A7638', '#4E5A30'],
+    fast: ['#F5C27E', '#E39A4E', '#B86A34', '#8A4A2C', '#6A3A28'],
+    quick: ['#F2AEC0', '#D9728F', '#AE4C6E', '#80365A', '#5E2A48']
+  };
+  function padSprite(w, v, kind) {
+    kind = kind || 'stable'; const pc = PAD_COLS[kind];
+    const key = Math.round(w / 4) * 4 + '_' + v + kind;
     if (padCache.has(key)) return padCache.get(key);
     const ww = Math.round(w / 4) * 4, rx = ww / 2, ry = ww * 0.17, m = 12;
     const cw = ww + m * 2, chh = ry * 2 + m * 2 + 6;
@@ -704,9 +751,9 @@
     g.scale(SR, SR); g.translate(rx + m, ry + m);
     const notch = -Math.PI / 2 + 0.35 + v * 0.55;
     const path = dy => { g.beginPath(); g.moveTo(0, dy); g.ellipse(0, dy, rx, ry, 0, notch + 0.2, notch - 0.2 + Math.PI * 2); g.closePath(); };
-    g.fillStyle = '#1F5A55'; path(4); g.fill();
+    g.fillStyle = pc[4]; path(4); g.fill();
     const gr = g.createLinearGradient(-rx, -ry, rx * 0.6, ry * 1.4);
-    gr.addColorStop(0, '#A6D27F'); gr.addColorStop(0.4, '#62A867'); gr.addColorStop(0.8, '#3A8458'); gr.addColorStop(1, '#2A6A58');
+    gr.addColorStop(0, pc[0]); gr.addColorStop(0.4, pc[1]); gr.addColorStop(0.8, pc[2]); gr.addColorStop(1, pc[3]);
     g.fillStyle = gr; path(0); g.fill();
     g.save(); path(0); g.clip();
     // cool sky reflection on the far side
@@ -1007,10 +1054,27 @@
     ctx.restore();
   }
 
+  // a timed pad dips and trembles as its seconds run out
+  function padDip(p) {
+    if (p.touchT === undefined || S.t >= p.sinkStart) return 0;
+    const left = p.sinkStart - S.t, k = 1 - left / (p.sinkStart - p.touchT);
+    return k * 5 + (left < 1.2 && !reduceMotion ? Math.sin(S.t * 30) * 1.4 * (1.2 - left) : 0);
+  }
+  function drawSinkTimer(p) {
+    if (p.touchT === undefined || S.t >= p.sinkStart) return;
+    const x = padX(p, S.t), left = p.sinkStart - S.t, k = left / (p.sinkStart - p.touchT);
+    const y = WATER + p.w * 0.17 + 14;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,253,244,.85)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x - 22, y); ctx.lineTo(x + 22, y); ctx.stroke();
+    ctx.strokeStyle = PAD_COLS[p.kind][2]; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(x - 22, y); ctx.lineTo(x - 22 + 44 * k, y); ctx.stroke();
+    ctx.restore();
+  }
   function drawPad(p) {
     const sk = sinkOf(p), heavy = S.bully && S.bully.pad === p && S.bully.state !== 'hop' ? 3 : 0;
-    const x = padX(p, S.t), y = WATER + Math.sin(S.t * 1.5 + p.ph) * 1.2 + heavy + sk * 16;
-    const sp = padSprite(p.w, Math.floor(p.ph) % 3);
+    const x = padX(p, S.t), y = WATER + Math.sin(S.t * 1.5 + p.ph) * 1.2 + heavy + sk * 16 + padDip(p);
+    const sp = padSprite(p.w, Math.floor(p.ph) % 3, p.kind);
     if (sk > 0) {
       ctx.save(); ctx.globalAlpha = 1 - sk;
       ctx.drawImage(sp.c, x - sp.ox, y - sp.oy, sp.w, sp.h);
@@ -1023,6 +1087,7 @@
     ctx.save(); ctx.globalAlpha = 0.22; ctx.fillStyle = '#1D4F5A';
     ctx.beginPath(); ctx.ellipse(x + 4, y + 7, p.w / 2 + 3, p.w * 0.17 + 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     ctx.drawImage(sp.c, x - sp.ox, y - sp.oy, sp.w, sp.h);
+    drawSinkTimer(p);
     if (p.amp) {
       ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.ellipse(x, y + 3, p.w / 2 + 9, p.w * 0.17 + 5, 0, 0.25, Math.PI - 0.25); ctx.stroke();
@@ -1133,7 +1198,7 @@
       ctx.restore();
       return;
     }
-    const bob = F.pad ? Math.sin(S.t * 1.5 + F.pad.ph) * 1.2 : 0;
+    const bob = F.pad ? Math.sin(S.t * 1.5 + F.pad.ph) * 1.2 + padDip(F.pad) : 0;
     const sq = F.squash;
     const ang = S.mode === 'air' ? Math.atan2(F.vy, Math.abs(F.vx) + 1) * 0.35 * F.face : 0;
     if (S.mode !== 'air') { // contact shadow on the pad
@@ -1243,7 +1308,12 @@
     // colour grade: lilac sky, teal pond, soft-light
     ctx.save(); ctx.globalCompositeOperation = 'soft-light';
     const cg = ctx.createLinearGradient(0, 0, 0, chh);
-    cg.addColorStop(0, 'rgba(196,170,226,.55)'); cg.addColorStop(0.6, 'rgba(250,236,200,.35)'); cg.addColorStop(1, 'rgba(70,150,170,.5)');
+    S.grade += ((S.stage - 1) - S.grade) * Math.min(1, dt * 0.8);
+    const GR = [[[196,170,226,.55],[250,236,200,.35],[70,150,170,.5]], [[200,214,200,.5],[250,240,200,.35],[60,160,160,.5]],
+                [[240,160,130,.6],[250,200,150,.45],[90,110,150,.55]], [[80,80,150,.75],[120,110,170,.5],[30,60,100,.7]]];
+    const gi = Math.min(2, Math.floor(S.grade)), gf = S.grade - gi;
+    const mix = (a, b) => `rgba(${a.slice(0, 3).map((v, i) => Math.round(v + (b[i] - v) * gf)).join(',')},${(a[3] + (b[3] - a[3]) * gf).toFixed(3)})`;
+    cg.addColorStop(0, mix(GR[gi][0], GR[gi + 1][0])); cg.addColorStop(0.6, mix(GR[gi][1], GR[gi + 1][1])); cg.addColorStop(1, mix(GR[gi][2], GR[gi + 1][2]));
     ctx.fillStyle = cg; ctx.fillRect(0, 0, cw, chh);
     ctx.restore();
     // warm light leak from the top right
@@ -1352,6 +1422,19 @@
     ctx.restore();
 
     drawMotes();
+    if (S.banner) {
+      S.banner.life -= dt;
+      const b = S.banner, a = Math.min(1, b.life * 1.5, (3.2 - b.life) * 3);
+      ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.textAlign = 'center';
+      const cy = -offY + viewH * 0.3;
+      ctx.font = `800 ${Math.max(30, 26 / scale).toFixed(1)}px Grandstander, system-ui, sans-serif`;
+      ctx.fillStyle = 'rgba(255,252,240,.8)'; ctx.fillText(b.title, W / 2 + 1.5, cy + 2);
+      ctx.fillStyle = '#22505E'; ctx.fillText(b.title, W / 2, cy);
+      ctx.font = `700 ${Math.max(16, 14 / scale).toFixed(1)}px "Atkinson Hyperlegible", system-ui, sans-serif`;
+      ctx.fillStyle = '#3E5A58'; ctx.fillText(b.sub, W / 2, cy + Math.max(30, 26 / scale));
+      ctx.restore();
+      if (b.life <= 0) S.banner = null;
+    }
     drawForeground();
     postFX(dt);
   }
@@ -1366,7 +1449,7 @@
   }
 
   // ---- full-screen / intro ----
-  function frogFrac(air) { return narrow ? (air ? 0.3 : 0.1) : (air ? 0.4 : 0.26); }
+  function frogFrac(air) { return narrow ? (air ? 0.4 : 0.3) : (air ? 0.4 : (W < 1000 ? 0.3 : 0.26)); }
   const mobile = window.matchMedia('(max-width: 820px), (pointer: coarse)').matches;
   const fsTarget = document.documentElement;
   const canFs = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
