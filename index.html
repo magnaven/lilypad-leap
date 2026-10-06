@@ -71,6 +71,8 @@
   .lab { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); font-weight: 700; }
   .chip b { font-family: var(--display); font-size: 20px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--deep); }
   .chip.hot b { color: var(--mouth); }
+  .lvbar { display: block; height: 3px; border-radius: 2px; background: rgba(34,80,94,.15); margin-top: 3px; overflow: hidden; }
+  .lvbar i { display: block; height: 100%; width: 0; background: var(--deep); border-radius: 2px; transition: width .35s ease; }
   .lives { display: flex; gap: 5px; background: var(--chip); border-radius: 12px; padding: 10px 11px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .life { width: 20px; height: 13px; border-radius: 50%; background: conic-gradient(from 20deg, transparent 0 22deg, #4F9A62 22deg 338deg, transparent 338deg); transition: opacity .3s, transform .3s; }
   .life.lost { opacity: .22; transform: scale(.8); }
@@ -195,8 +197,6 @@
     .intro .card button { padding: 10px 36px; margin-top: 2px; }
   }
 </style>
-</head>
-<body>
 
 <div class="wrap">
   <header>
@@ -207,7 +207,7 @@
   <div class="stage" id="stage">
     <canvas id="game" tabindex="0" aria-label="Game: drag back from the frog to aim, release to jump. Arrow keys adjust the aim, space jumps."></canvas>
     <div class="hud">
-      <div class="chip" id="levelChip"><span class="lab" id="levelLab">Level 1</span><b id="progress">0/10</b></div>
+      <div class="chip" id="levelChip"><span class="lab" id="levelLab">Level 1</span><b id="progress">0/12</b><i class="lvbar"><i id="lvFill"></i></i></div>
       <div class="chip"><span class="lab">Score</span><b id="score">0</b></div>
       <div class="chip"><span class="lab">Flies</span><b id="flies">0</b></div>
       <div class="chip" id="streakChip"><span class="lab">Streak</span><b id="streak">×1</b></div>
@@ -352,17 +352,20 @@
   // len: pads to the lotus · mix: share of sinking pads · d0→d1: gap/pad-size difficulty across the level
   // wind: base push + gust swing (units/s²) over `per` seconds · bully: seconds between hops (falls to bullyMin)
   const LEVELS = [
-    { n: 1, name: 'Morning Pond', sub: 'Green pads only. Find your aim and reach the lotus.', len: 10, mix: {}, d0: 0, d1: 0.25,
-      drift: 0, circle: 0.08, wind: { base: 0, gust: 0, per: 1 }, bully: 3.2, bullyMin: 2.6, wake: 5, grade: 0 },
-    { n: 2, name: 'Breezy Noon', sub: 'A tailwind carries every leap. Yellow pads sink 4s after you land.', len: 14, mix: { slow: 0.3 }, d0: 0.2, d1: 0.5,
-      drift: 0.3, circle: 0.3, wind: { base: 70, gust: 35, per: 5 }, bully: 2.6, bullyMin: 1.9, wake: 4, grade: 1 },
-    { n: 3, name: 'Dragonfly Dusk', sub: 'A headwind pushes back. Orange pads sink after 2.5s.', len: 16, mix: { slow: 0.25, fast: 0.25 }, d0: 0.4, d1: 0.7,
-      drift: 0.45, circle: 0.55, wind: { base: -60, gust: 30, per: 6 }, tint: 'rgba(255,190,150,0.22)', bully: 2.3, bullyMin: 1.6, wake: 4, grade: 2 },
-    { n: 4, name: 'Firefly Night', sub: 'Darkness falls. Chase the fireflies: each one you eat lights up the pond. Pink pads sink after 1.5s.', len: 18, mix: { slow: 0.2, fast: 0.25, quick: 0.15 }, d0: 0.55, d1: 0.85,
-      drift: 0.5, circle: 0.5, wind: { base: 0, gust: 0, per: 1 }, dark: true, arc: 0.7, tint: 'rgba(70,80,140,0.42)', bully: 2.1, bullyMin: 1.4, wake: 4, grade: 3 },
-    { n: 5, name: 'Thunderstorm', sub: 'Gusts swing both ways. Rain, lightning and a hungry bullfrog.', len: 22, mix: { slow: 0.2, fast: 0.25, quick: 0.25 }, d0: 0.7, d1: 1,
-      drift: 0.55, circle: 0.6, wind: { base: 0, gust: 120, per: 7 }, rain: true, tint: 'rgba(80,95,110,0.4)', bully: 1.9, bullyMin: 1.15, wake: 3.5, grade: 4 }
+    // calibrated so each level starts about where the last one ended and adds one new idea
+    { n: 1, name: 'Morning Pond', sub: 'Find your aim and reach the lotus. The last few pads are yellow: they sink 4s after you land.', len: 12, mix: {}, tease: 3, d0: 0.15, d1: 0.4,
+      drift: 0.1, circle: 0.15, wind: { base: 0, gust: 0, per: 1 }, bully: 2.9, bullyMin: 2.4, wake: 4.5, grade: 0 },
+    { n: 2, name: 'Breezy Noon', sub: 'A gentle tailwind carries every leap. Watch the arc stretch.', len: 14, mix: { slow: 0.25 }, d0: 0.35, d1: 0.55,
+      drift: 0.3, circle: 0.3, wind: { base: 40, gust: 15, per: 5 }, bully: 2.5, bullyMin: 2.0, wake: 4, grade: 1 },
+    { n: 3, name: 'Dragonfly Dusk', sub: 'A headwind pushes back. Orange pads sink after 2.5s.', len: 16, mix: { slow: 0.25, fast: 0.2 }, d0: 0.5, d1: 0.7,
+      drift: 0.4, circle: 0.5, wind: { base: -45, gust: 20, per: 6 }, tint: 'rgba(255,190,150,0.22)', bully: 2.3, bullyMin: 1.75, wake: 4, grade: 2 },
+    { n: 4, name: 'Firefly Night', sub: 'Darkness falls. Chase the fireflies: each one you eat lights up the pond. Pink pads sink after 1.5s.', len: 18, mix: { slow: 0.2, fast: 0.2, quick: 0.12 }, d0: 0.6, d1: 0.8,
+      drift: 0.45, circle: 0.5, wind: { base: 0, gust: 0, per: 1 }, dark: true, arc: 0.75, tint: 'rgba(70,80,140,0.42)', bully: 2.2, bullyMin: 1.65, wake: 4, grade: 3 },
+    { n: 5, name: 'Thunderstorm', sub: 'Gusts swing both ways. Rain, lightning and a hungry bullfrog.', len: 20, mix: { slow: 0.2, fast: 0.2, quick: 0.18 }, d0: 0.65, d1: 0.9,
+      drift: 0.5, circle: 0.55, wind: { base: 0, gust: 70, per: 7 }, rain: true, tint: 'rgba(80,95,110,0.4)', bully: 2.05, bullyMin: 1.45, wake: 4, grade: 4 }
   ];
+  const TOTAL_PADS = LEVELS.reduce((s, L) => s + L.len, 0);
+  const padsBefore = n => LEVELS.slice(0, n - 1).reduce((s, L) => s + L.len, 0);
   const PAD_DELAY = { slow: 4, fast: 2.5, quick: 1.5 };
   const windAt = t => { const w = S.level.wind; return w.base + w.gust * Math.sin(t * Math.PI * 2 / w.per); };
   let progress = (() => { try { return JSON.parse(store.get('ll-progress', '')) || null; } catch (e) { return null; } })() || { unlocked: 1, stars: [0, 0, 0, 0, 0], best: [0, 0, 0, 0, 0] };
@@ -386,7 +389,8 @@
         bx: last.bx + gap, w: finish ? 170 : rand(96 - 28 * d, 132 - 38 * d),
         amp: drift ? rand(16, 28 + 22 * d) : 0, sp: rand(0.55, 1.05), ph: rand(0, 6.28)
       };
-      p.n = S.padCount; p.finish = finish; p.kind = finish ? 'stable' : pickKind(L, last.kind);
+      p.n = S.padCount; p.finish = finish;
+      p.kind = finish ? 'stable' : (L.tease && S.padCount >= L.len - L.tease && last.kind === 'stable') ? 'slow' : pickKind(L, last.kind);
       S.pads.push(p); S.padCount++;
       // flies over the gap, guaranteed catchable on an arc that lands on the next pad
       const x0 = last.bx, x1 = p.bx;
@@ -567,6 +571,7 @@
     S.mode = 'aim';
     if (S.jumpCatch > 0) S.streak++; else if (pad !== S.lastPad) S.streak = 0;
     if (pad.kind && pad.kind !== 'stable' && pad.sinkStart === undefined) { pad.touchT = S.t; pad.sinkStart = S.t + PAD_DELAY[pad.kind]; }
+    if (pad !== S.lastPad) S.missRun = 0;
     if (pad !== S.lastPad) { S.score += 5; S.floats.push({ x: F.x, y: F.y - 60, text: 'landed +5', life: .9, col: '#3F8C5C' }); }
     S.lastPad = pad;
     S.ripples.push({ x: F.x, y: WATER, r: 14, life: 1 }, { x: F.x, y: WATER, r: 4, life: 1.3 });
@@ -579,6 +584,16 @@
   function splash() {
     const F = S.frog;
     S.mode = 'splash'; S.splashT = 1.25; S.lives--; S.streak = 0; S.splashes++;
+    S.missRun = (S.missRun || 0) + 1;
+    if (S.missRun >= 2) { // mercy: two splashes in a row widen and steady the next few pads
+      const from = Math.max(0, padIdx(S.lastPad)) + 1;
+      S.pads.slice(from, from + 3).forEach(p => {
+        if (p.finish || p.mercy) return;
+        p.mercy = true; p.w = Math.min(150, p.w * 1.25); p.amp *= 0.5;
+        if (p.sinkStart === undefined && p.kind === 'quick') p.kind = 'fast';
+      });
+      S.floats.push({ x: F.x + 120, y: WATER - 110, text: 'wider pads ahead', life: 1.6, col: '#3F8C5C' });
+    }
     for (let i = 0; i < 26; i++) S.parts.push({ x: F.x + rand(-10, 10), y: WATER, vx: rand(-120, 120), vy: rand(-340, -120), life: rand(.5, .9), max: .9, r: rand(2, 4.5), col: i % 3 ? '#A9D3DE' : '#F3F6F2', g: 900 });
     S.ripples.push({ x: F.x, y: WATER, r: 10, life: 1.4 }, { x: F.x, y: WATER, r: 2, life: 1.8 });
     S.floats.push({ x: F.x, y: WATER - 70, text: 'splash!', life: 1.2, col: '#22505E' });
@@ -617,8 +632,11 @@
   }
 
   function updateHud() {
-    $('levelLab').textContent = 'Level ' + S.level.n;
-    $('progress').textContent = Math.max(0, S.lastPad.n) + '/' + S.level.len;
+    const done = Math.max(0, S.lastPad.n);
+    $('levelLab').textContent = 'Level ' + S.level.n + '/' + LEVELS.length;
+    $('progress').textContent = done + '/' + S.level.len;
+    $('lvFill').style.width = (100 * Math.min(1, done / S.level.len)) + '%';
+    $('levelChip').title = 'Whole pond: ' + (padsBefore(S.level.n) + done) + '/' + TOTAL_PADS + ' pads';
     $('score').textContent = S.score;
     $('flies').textContent = S.eaten;
     $('streak').textContent = '×' + Math.min(5, S.streak + 1);
@@ -1637,27 +1655,33 @@
     S.windDrift += windAt(S.t) * dt * 0.9;
     drawMotes();
     drawWeather(dt);
-    if (S.banner) {
-      S.banner.life -= dt;
-      const b = S.banner, a = Math.min(1, b.life * 1.5, (3.2 - b.life) * 3);
-      ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.textAlign = 'center';
-      const cy = -offY + viewH * 0.3;
-      ctx.font = `800 ${Math.max(30, 26 / scale).toFixed(1)}px Grandstander, system-ui, sans-serif`;
-      ctx.fillStyle = 'rgba(255,252,240,.8)'; ctx.fillText(b.title, W / 2 + 1.5, cy + 2);
-      ctx.fillStyle = '#22505E'; ctx.fillText(b.title, W / 2, cy);
-      ctx.font = `700 ${Math.max(16, 14 / scale).toFixed(1)}px "Atkinson Hyperlegible", system-ui, sans-serif`;
-      ctx.fillStyle = '#3E5A58';
-      const words = b.sub.split(' '), lines = []; let line = '';
-      for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > W * 0.86 && line) { lines.push(line); line = w; } else line = t; }
-      lines.push(line);
-      const lh = Math.max(20, 18 / scale);
-      lines.forEach((l, k) => ctx.fillText(l, W / 2, cy + Math.max(30, 26 / scale) + k * lh));
-      ctx.restore();
-      if (b.life <= 0) S.banner = null;
-    }
     drawForeground();
     if (S.level.dark) drawDarkness(dt);
+    drawBanner(dt);
     postFX(dt);
+  }
+
+  function drawBanner(dt) {
+    if (!S.banner) return;
+    S.banner.life -= dt;
+    const b = S.banner, a = Math.min(1, b.life * 1.5, (3.2 - b.life) * 3), dark = !!S.level.dark;
+    ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.textAlign = 'center';
+    const cy = -offY + viewH * 0.3;
+    let ts = Math.max(30, 26 / scale);
+    ctx.font = `800 ${ts.toFixed(1)}px Grandstander, system-ui, sans-serif`;
+    const tw = ctx.measureText(b.title).width;
+    if (tw > W * 0.9) { ts *= W * 0.9 / tw; ctx.font = `800 ${ts.toFixed(1)}px Grandstander, system-ui, sans-serif`; }
+    ctx.fillStyle = dark ? 'rgba(10,14,34,.85)' : 'rgba(255,252,240,.8)'; ctx.fillText(b.title, W / 2 + 1.5, cy + 2);
+    ctx.fillStyle = dark ? '#F3E9B8' : '#22505E'; ctx.fillText(b.title, W / 2, cy);
+    ctx.font = `700 ${Math.max(16, 14 / scale).toFixed(1)}px "Atkinson Hyperlegible", system-ui, sans-serif`;
+    ctx.fillStyle = dark ? '#C9D3E8' : '#3E5A58';
+    const words = b.sub.split(' '), lines = []; let line = '';
+    for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > W * 0.86 && line) { lines.push(line); line = w; } else line = t; }
+    lines.push(line);
+    const lh = Math.max(20, 18 / scale);
+    lines.forEach((l, k) => ctx.fillText(l, W / 2, cy + Math.max(30, 26 / scale) + k * lh));
+    ctx.restore();
+    if (b.life <= 0) S.banner = null;
   }
 
   // ---- loop ----
